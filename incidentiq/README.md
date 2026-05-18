@@ -98,8 +98,8 @@ The audit trail shows exactly:
 
 ### 2. Install
 ```bash
-git clone https://github.com/your-username/incidentiq.git
-cd incidentiq
+git clone https://github.com/imagine1phoenix/IncidentIQ.git
+cd IncidentIQ/incidentiq
 pip install -r requirements.txt
 ```
 
@@ -117,8 +117,22 @@ GROQ_API_KEY=your_groq_key
 python seed.py
 ```
 
-### 5. Run
+### 5. Deploy to Vercel
 ```bash
+npm i -g vercel
+vercel --cwd incidentiq
+```
+Set these **Environment Variables** in the Vercel dashboard:
+- `HINDSIGHT_API_KEY`
+- `HINDSIGHT_API_URL`
+- `HINDSIGHT_BANK_ID`
+- `GROQ_API_KEY`
+
+Set **Root Directory** to `incidentiq` in Vercel project settings.
+
+### 5b. Run Locally (Streamlit — optional)
+```bash
+pip install streamlit
 streamlit run main.py
 ```
 
@@ -146,13 +160,21 @@ Point to right panel: model routing, cost savings, budget enforcement.
 
 ```
 incidentiq/
-├── main.py              # Streamlit UI — dark-mode dashboard
-├── agent.py             # Core agent — memory + cascadeflow orchestration
-├── memory.py            # Hindsight API integration (recall, retain, stats)
-├── runtime.py           # cascadeflow CascadeAgent configuration
-├── seed.py              # Seeds 20 synthetic incidents into Hindsight
-├── requirements.txt     # Python dependencies
-├── .env                 # API keys (not committed)
+├── public/                  # Static frontend (deployed on Vercel)
+│   ├── index.html           # Premium dark-mode dashboard
+│   ├── styles.css           # Design system
+│   └── app.js               # Client-side logic
+├── api/                     # Vercel serverless functions
+│   ├── analyze.py           # POST /api/analyze — memory recall + LLM
+│   ├── resolve.py           # POST /api/resolve — log fix to Hindsight
+│   └── stats.py             # GET /api/stats — memory bank stats
+├── main.py                  # Streamlit UI (local dev alternative)
+├── agent.py                 # Core agent logic (used by main.py)
+├── memory.py                # Hindsight client (used by main.py)
+├── runtime.py               # cascadeflow config (used by main.py)
+├── seed.py                  # Seeds 20 incidents into Hindsight
+├── vercel.json              # Vercel deployment config
+├── requirements.txt         # Python dependencies
 └── data/
     └── seed_incidents.json  # 20 realistic DevOps incidents
 ```
@@ -165,4 +187,4 @@ incidentiq/
 | **cascadeflow Integration** | Per-severity budget routing, drafter/verifier cascade, full audit trail |
 | **Innovation** | Agent that *learns* from your team's fixes — not generic knowledge |
 | **Demo Quality** | Before/after memory recall + real-time learning in 60 seconds |
-| **Production Readiness** | Thread-safe async, error handling, dark-mode UI, session history |
+| **Production Readiness** | Vercel deployment, serverless API, dark-mode UI, session history |

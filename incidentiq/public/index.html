@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IncidentIQ — AI Incident Response</title>
+<meta name="description" content="AI-powered incident response agent with persistent memory">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <span class="logo">🚨</span>
+    <div>
+      <h1 class="title">IncidentIQ</h1>
+      <p class="subtitle">AI-Powered Incident Response — learns via <b>Hindsight</b> memory, routes via <b>cascadeflow</b></p>
+    </div>
+  </div>
+  <span class="status-pill" id="memoryPill">● Loading…</span>
+</header>
+
+<!-- Main 3-column layout -->
+<main class="grid">
+
+  <!-- LEFT: Alert Form -->
+  <section class="panel" id="formPanel">
+    <div class="section-header">⚠️ NEW ALERT</div>
+    <form id="alertForm">
+      <label for="service">Service</label>
+      <select id="service">
+        <option>payment-service</option><option>auth-api</option>
+        <option>nginx-gateway</option><option selected>user-db</option>
+        <option>cache-redis</option><option>inventory-api</option>
+        <option>search-service</option><option>notification-service</option>
+        <option>report-worker</option><option>image-processing</option>
+        <option>frontend-web</option>
+      </select>
+      <label for="error">Error Message</label>
+      <textarea id="error" rows="4" placeholder="e.g. DB connection pool exhausted&#10;e.g. OOM kill on pod nginx-7x"></textarea>
+      <label for="severity">Severity</label>
+      <select id="severity">
+        <option value="P1">P1 — Critical</option>
+        <option value="P2">P2 — High</option>
+        <option value="P3" selected>P3 — Medium</option>
+      </select>
+      <button type="submit" id="analyzeBtn">🔍 Analyze Incident</button>
+    </form>
+    <div class="session-stats" id="sessionStats" style="display:none">
+      <span id="queryCount">0</span> queries · $<span id="totalCost">0.00000</span> total
+    </div>
+  </section>
+
+  <!-- CENTER: Agent Response -->
+  <section class="panel panel-center" id="responsePanel">
+    <div class="section-header">🧠 AGENT INTELLIGENCE</div>
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">Ready to Respond</div>
+      <div class="empty-sub">Submit an alert. The agent searches Hindsight memory for similar past incidents.</div>
+    </div>
+    <div id="responseContent" style="display:none">
+      <div id="badgeRow" class="badge-row"></div>
+      <div id="memoriesExpander" style="display:none">
+        <button class="expander-btn" onclick="toggleMemories()">
+          📂 <span id="memCount">0</span> recalled memories <span id="expandIcon">▸</span>
+        </button>
+        <div id="memoriesList" class="memories-list" style="display:none"></div>
+      </div>
+      <div class="response-card" id="agentResponse"></div>
+      <!-- Resolve Section -->
+      <div class="resolve-section" id="resolveSection">
+        <h4>✅ Resolve & Teach</h4>
+        <p class="resolve-hint">Log the fix → agent learns it instantly</p>
+        <form id="resolveForm">
+          <div class="resolve-row">
+            <div><label>Root Cause</label><input id="rootCause" placeholder="e.g. Connection leak"></div>
+            <div><label>Fix Applied</label><input id="fixApplied" placeholder="e.g. Increased pool 10→20"></div>
+          </div>
+          <label>Resolved By</label><input id="resolvedBy" placeholder="@your-handle">
+          <button type="submit" class="resolve-btn">💾 Log to Hindsight Memory</button>
+        </form>
+        <div id="resolveStatus"></div>
+      </div>
+    </div>
+    <div id="loadingState" style="display:none" class="loading-state">
+      <div class="spinner"></div>
+      <p>Searching memory & analyzing…</p>
+    </div>
+  </section>
+
+  <!-- RIGHT: Audit Trail -->
+  <section class="panel" id="auditPanel">
+    <div class="section-header">📊 CASCADEFLOW AUDIT</div>
+    <div id="auditEmpty" class="empty-state small">
+      <div class="empty-icon">📊</div>
+      <div class="empty-sub">Audit trail appears after analysis.</div>
+    </div>
+    <div id="auditContent" style="display:none">
+      <div id="routeTag" class="route-tag"></div>
+      <div class="metric-grid" id="metricGrid"></div>
+      <p class="rationale" id="rationale"></p>
+      <button class="expander-btn" onclick="toggleTrace()" id="traceBtn" style="display:none">
+        🔍 Full Decision Trace <span id="traceIcon">▸</span>
+      </button>
+      <pre id="traceData" class="trace-data" style="display:none"></pre>
+    </div>
+  </section>
+
+</main>
+
+<!-- History Bar -->
+<footer class="history-bar" id="historyBar" style="display:none">
+  <div class="section-header">📋 SESSION HISTORY</div>
+  <div id="historyList"></div>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

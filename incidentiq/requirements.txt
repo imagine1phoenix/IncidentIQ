@@ -1,5 +1,4 @@
 cascadeflow
-streamlit
 groq
 python-dotenv
 requests
