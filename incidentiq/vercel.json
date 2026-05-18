@@ -1,13 +1,13 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "api/*.py",
-      "use": "@vercel/python"
-    }
+    { "src": "api/*.py", "use": "@vercel/python" },
+    { "src": "public/**", "use": "@vercel/static" }
   ],
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" }
-  ],
-  "outputDirectory": "public"
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/styles.css", "dest": "/public/styles.css" },
+    { "src": "/app.js", "dest": "/public/app.js" },
+    { "src": "/(.*)", "dest": "/public/index.html" }
+  ]
 }
