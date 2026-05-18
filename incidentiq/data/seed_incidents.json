@@ -1,0 +1,222 @@
+[
+  {
+    "incident_id": "INC-001",
+    "timestamp": "2024-05-01T08:14:00Z",
+    "service_name": "payment-service",
+    "error_message": "Payment gateway timeout on Stripe API",
+    "severity": "P1",
+    "root_cause": "Stripe API rate limit exceeded due to sudden spike in retry requests",
+    "fix_applied": "Implemented exponential backoff in retry logic and increased circuit breaker timeout to 15s",
+    "resolved_by": "@devops-team",
+    "resolution_time_minutes": 35
+  },
+  {
+    "incident_id": "INC-002",
+    "timestamp": "2024-05-03T14:22:00Z",
+    "service_name": "user-db",
+    "error_message": "DB connection pool exhausted",
+    "severity": "P1",
+    "root_cause": "Connection leak in the newly deployed reporting service holding connections open",
+    "fix_applied": "Increased DB connection pool size from 10 to 20 and hotfixed the reporting service to close connections",
+    "resolved_by": "@dba-team",
+    "resolution_time_minutes": 12
+  },
+  {
+    "incident_id": "INC-003",
+    "timestamp": "2024-05-05T09:05:00Z",
+    "service_name": "nginx-gateway",
+    "error_message": "502 Bad Gateway",
+    "severity": "P2",
+    "root_cause": "Backend auth-api pods were OOM killed due to memory leak",
+    "fix_applied": "Restarted auth-api pods and increased memory limits from 512Mi to 1Gi",
+    "resolved_by": "@sre-team",
+    "resolution_time_minutes": 18
+  },
+  {
+    "incident_id": "INC-004",
+    "timestamp": "2024-05-10T11:45:00Z",
+    "service_name": "auth-api",
+    "error_message": "JWT signature validation failed",
+    "severity": "P2",
+    "root_cause": "Expired public key rotation on the identity provider side",
+    "fix_applied": "Manually synced the new public keys to the auth cache and restarted the service",
+    "resolved_by": "@sec-ops",
+    "resolution_time_minutes": 45
+  },
+  {
+    "incident_id": "INC-005",
+    "timestamp": "2024-05-12T16:30:00Z",
+    "service_name": "cache-redis",
+    "error_message": "Redis timeout exceeded",
+    "severity": "P2",
+    "root_cause": "Large KEYS * command run by a misconfigured cron job blocked the single thread",
+    "fix_applied": "Killed the cron job, changed to use SCAN instead of KEYS in the script",
+    "resolved_by": "@devops-team",
+    "resolution_time_minutes": 22
+  },
+  {
+    "incident_id": "INC-006",
+    "timestamp": "2024-05-15T02:15:00Z",
+    "service_name": "nginx-gateway",
+    "error_message": "OOM kill on pod nginx-7x",
+    "severity": "P1",
+    "root_cause": "DDoS attack overwhelming the ingress controller memory buffers",
+    "fix_applied": "Enabled Cloudflare under-attack mode and added rate limiting to the ingress config",
+    "resolved_by": "@sre-team",
+    "resolution_time_minutes": 28
+  },
+  {
+    "incident_id": "INC-007",
+    "timestamp": "2024-05-18T07:12:00Z",
+    "service_name": "user-db",
+    "error_message": "Disk space 99% full on db-01",
+    "severity": "P1",
+    "root_cause": "WAL logs were not being archived due to failed S3 backup script",
+    "fix_applied": "Fixed AWS permissions on the IAM role for backups, triggered manual WAL archive, and resized EBS volume temporarily",
+    "resolved_by": "@dba-team",
+    "resolution_time_minutes": 55
+  },
+  {
+    "incident_id": "INC-008",
+    "timestamp": "2024-05-20T10:00:00Z",
+    "service_name": "payment-service",
+    "error_message": "Invalid API Key provided",
+    "severity": "P3",
+    "root_cause": "A newly deployed frontend version used an old environment variable for the Stripe key",
+    "fix_applied": "Rolled back frontend deployment to previous version and updated CI/CD secrets",
+    "resolved_by": "@frontend-team",
+    "resolution_time_minutes": 15
+  },
+  {
+    "incident_id": "INC-009",
+    "timestamp": "2024-05-22T13:40:00Z",
+    "service_name": "notification-service",
+    "error_message": "Failed to send SMS message",
+    "severity": "P3",
+    "root_cause": "Twilio account balance depleted",
+    "fix_applied": "Added auto-recharge to the Twilio account with corporate card",
+    "resolved_by": "@billing-team",
+    "resolution_time_minutes": 40
+  },
+  {
+    "incident_id": "INC-010",
+    "timestamp": "2024-05-25T15:20:00Z",
+    "service_name": "auth-api",
+    "error_message": "High CPU usage on auth pod",
+    "severity": "P2",
+    "root_cause": "Bcrypt work factor was accidentally increased from 10 to 14 in the latest release",
+    "fix_applied": "Reverted bcrypt work factor change in config map and performed rolling restart",
+    "resolved_by": "@devops-team",
+    "resolution_time_minutes": 25
+  },
+  {
+    "incident_id": "INC-011",
+    "timestamp": "2024-05-28T09:15:00Z",
+    "service_name": "inventory-api",
+    "error_message": "Deadlock found when trying to get lock",
+    "severity": "P1",
+    "root_cause": "Concurrent bulk update processes conflicting on the same rows in items table",
+    "fix_applied": "Added explicit ordering to row updates to prevent deadlocks and reduced batch size",
+    "resolved_by": "@backend-team",
+    "resolution_time_minutes": 60
+  },
+  {
+    "incident_id": "INC-012",
+    "timestamp": "2024-06-01T11:05:00Z",
+    "service_name": "search-service",
+    "error_message": "Elasticsearch cluster yellow status",
+    "severity": "P3",
+    "root_cause": "Unassigned replica shards due to a crashed node in zone b",
+    "fix_applied": "Rebooted the crashed ES node and waited for shard reallocation",
+    "resolved_by": "@sre-team",
+    "resolution_time_minutes": 20
+  },
+  {
+    "incident_id": "INC-013",
+    "timestamp": "2024-06-03T18:45:00Z",
+    "service_name": "frontend-web",
+    "error_message": "Uncaught TypeError: Cannot read properties of undefined",
+    "severity": "P2",
+    "root_cause": "API response payload changed without versioning, removing a required field",
+    "fix_applied": "Added null checks in the frontend component and reverted API change pending proper deprecation",
+    "resolved_by": "@fullstack-team",
+    "resolution_time_minutes": 30
+  },
+  {
+    "incident_id": "INC-014",
+    "timestamp": "2024-06-07T22:10:00Z",
+    "service_name": "report-worker",
+    "error_message": "Worker timed out after 300s",
+    "severity": "P3",
+    "root_cause": "Complex SQL query taking too long on unindexed column",
+    "fix_applied": "Added missing index on `created_at` column in the transactions table",
+    "resolved_by": "@dba-team",
+    "resolution_time_minutes": 18
+  },
+  {
+    "incident_id": "INC-015",
+    "timestamp": "2024-06-10T04:20:00Z",
+    "service_name": "user-db",
+    "error_message": "Too many connections",
+    "severity": "P1",
+    "root_cause": "A traffic spike caused autoscaling to spawn too many app instances, exhausting max_connections",
+    "fix_applied": "Increased max_connections temporarily and deployed PgBouncer as a connection pooler",
+    "resolved_by": "@dba-team",
+    "resolution_time_minutes": 45
+  },
+  {
+    "incident_id": "INC-016",
+    "timestamp": "2024-06-12T13:55:00Z",
+    "service_name": "image-processing",
+    "error_message": "No space left on device",
+    "severity": "P2",
+    "root_cause": "Temporary resized images were not being cleaned up from the local pod filesystem",
+    "fix_applied": "Added a cleanup step after S3 upload and modified app to stream processing without saving to disk",
+    "resolved_by": "@backend-team",
+    "resolution_time_minutes": 25
+  },
+  {
+    "incident_id": "INC-017",
+    "timestamp": "2024-06-15T08:30:00Z",
+    "service_name": "nginx-gateway",
+    "error_message": "504 Gateway Timeout",
+    "severity": "P1",
+    "root_cause": "Upstream service was stuck in a restart loop due to failing readiness probe",
+    "fix_applied": "Increased readiness probe initialDelaySeconds from 5s to 30s for the upstream service",
+    "resolved_by": "@devops-team",
+    "resolution_time_minutes": 15
+  },
+  {
+    "incident_id": "INC-018",
+    "timestamp": "2024-06-18T16:15:00Z",
+    "service_name": "cache-redis",
+    "error_message": "Max memory policy reached",
+    "severity": "P2",
+    "root_cause": "Default TTL on session keys was accidentally removed in recent commit",
+    "fix_applied": "Restored the TTL setting on session cache writes and ran a script to clear untracked keys",
+    "resolved_by": "@backend-team",
+    "resolution_time_minutes": 30
+  },
+  {
+    "incident_id": "INC-019",
+    "timestamp": "2024-06-21T10:45:00Z",
+    "service_name": "payment-service",
+    "error_message": "Webhook signature verification failed",
+    "severity": "P1",
+    "root_cause": "Payment provider rotated their webhook signing secrets",
+    "fix_applied": "Updated the WEBHOOK_SECRET env var and restarted the payment service pods",
+    "resolved_by": "@sec-ops",
+    "resolution_time_minutes": 20
+  },
+  {
+    "incident_id": "INC-020",
+    "timestamp": "2024-06-25T14:00:00Z",
+    "service_name": "auth-api",
+    "error_message": "CORS policy blocked request",
+    "severity": "P3",
+    "root_cause": "New admin dashboard domain was not added to the allowed origins list",
+    "fix_applied": "Updated CORS configuration array to include the new domain and deployed",
+    "resolved_by": "@frontend-team",
+    "resolution_time_minutes": 10
+  }
+]
