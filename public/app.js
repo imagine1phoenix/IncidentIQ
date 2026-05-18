@@ -1,236 +1,230 @@
-// ── State ────────────────────────────────────────────────────────────────────
-let activeIncident = null;
-let history = [];
-let totalQueries = 0;
-let totalCost = 0;
+// ── State ─────────────────────────────────────────
+let active = null, history = [], totalQ = 0, totalCost = 0, memHits = 0, latencies = [];
 
-// ── Init ─────────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadStats();
   document.getElementById('alertForm').addEventListener('submit', handleAnalyze);
   document.getElementById('resolveForm').addEventListener('submit', handleResolve);
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); toggleCmd(); }
+    if (e.key === 'Escape') { closeCmd(); closeResolve(); }
+  });
 });
 
 async function loadStats() {
   try {
     const r = await fetch('/api/stats');
     const d = await r.json();
-    const count = d.memory_count || d.total_memories || '—';
-    document.getElementById('memoryPill').textContent = `● ${count} memories loaded`;
-  } catch { document.getElementById('memoryPill').textContent = '● Connected'; }
+    const c = d.memory_count || d.total_memories || '—';
+    document.getElementById('memStat').textContent = c;
+  } catch { document.getElementById('memStat').textContent = '—'; }
 }
 
-// ── Analyze ──────────────────────────────────────────────────────────────────
+// ── Analyze ───────────────────────────────────────
 async function handleAnalyze(e) {
   e.preventDefault();
   const service = document.getElementById('service').value;
   const error = document.getElementById('error').value.trim();
-  const severity = document.getElementById('severity').value;
-  if (!error) return alert('Enter an error message.');
+  const sev = document.querySelector('input[name="sev"]:checked').value;
+  if (!error) return toast('Enter an error message', 'error');
 
   showLoading(true);
-
   try {
     const r = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ service_name: service, error_message: error, severity }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service_name: service, error_message: error, severity: sev }),
     });
     const data = await r.json();
-
-    activeIncident = { service, error, severity };
-    totalQueries++;
-    totalCost += data.total_cost || 0;
+    active = { service, error, severity: sev };
+    totalQ++; totalCost += data.total_cost || 0;
+    latencies.push(data.latency_ms || 0);
+    if ((data.memory_count || 0) > 0) memHits++;
 
     history.push({
       time: new Date().toLocaleTimeString('en-US', { hour12: false }),
-      service, error: error.slice(0, 60), severity,
+      service, error: error.slice(0, 80), severity: sev,
       hadMemory: (data.memory_count || 0) > 0,
-      model: data.model_used || '—',
-      cost: data.total_cost || 0,
+      model: data.model_used || '—', cost: data.total_cost || 0,
+      latency: data.latency_ms || 0,
     });
 
-    renderResponse(data, severity);
-    renderAudit(data, severity);
-    renderHistory();
-    updateSessionStats();
-  } catch (err) {
-    alert('Error: ' + err.message);
-  } finally {
     showLoading(false);
+    renderResponse(data, sev);
+    renderAudit(data, sev);
+    renderTimeline();
+    updateAnalytics();
+    toast('Analysis complete', 'success');
+  } catch (err) {
+    showLoading(false); toast('Error: ' + err.message, 'error');
   }
 }
 
-// ── Render Response ──────────────────────────────────────────────────────────
-function renderResponse(data, severity) {
+// ── Render Response ───────────────────────────────
+function renderResponse(data, sev) {
+  const el = document.getElementById('responseContent');
+  el.style.display = 'block';
   document.getElementById('emptyState').style.display = 'none';
-  document.getElementById('responseContent').style.display = 'block';
 
-  const hasMemory = (data.memory_count || 0) > 0;
-  const badgeRow = document.getElementById('badgeRow');
-  badgeRow.innerHTML =
-    `<span class="badge badge-sev sev-${severity}">${severity}</span>` +
-    (hasMemory
-      ? '<span class="badge badge-memory">✓ MEMORY MATCH</span>'
-      : '<span class="badge badge-general">ℹ NEW ERROR TYPE</span>') +
-    `<span style="color:#8891a5;font-size:.75rem;margin-left:4px">${activeIncident.service} · ${activeIncident.error.slice(0, 50)}</span>`;
+  const hasMem = (data.memory_count || 0) > 0;
+  document.getElementById('responseBadges').innerHTML =
+    `<span class="badge badge-sev-${sev}">${sev}</span>` +
+    (hasMem ? '<span class="badge badge-memory">✓ Memory Match</span>' : '<span class="badge badge-new">New Error</span>');
 
-  // Memories
   const memories = data.memories || [];
-  const expander = document.getElementById('memoriesExpander');
+  const ms = document.getElementById('memorySection');
   if (memories.length > 0) {
-    expander.style.display = 'block';
-    document.getElementById('memCount').textContent = memories.length;
-    const list = document.getElementById('memoriesList');
-    list.innerHTML = memories.map((m, i) =>
-      `<div class="memory-item"><b>Memory #${i + 1}</b><br>${escapeHtml(m)}</div>`
-    ).join('');
-  } else {
-    expander.style.display = 'none';
-  }
+    ms.style.display = 'block';
+    document.getElementById('memTitle').textContent = `${memories.length} memories recalled`;
+    document.getElementById('memoryCards').innerHTML = memories.map((m, i) =>
+      `<div class="mem-card"><b>Memory #${i + 1}</b><br>${esc(m)}</div>`).join('');
+  } else { ms.style.display = 'none'; }
 
-  // Agent response — convert markdown-like headings
-  const html = markdownToHtml(data.response || 'No response.');
-  document.getElementById('agentResponse').innerHTML = html;
-  document.getElementById('resolveSection').style.display = 'block';
+  const html = md(data.response || '⚠️ No response.');
+  document.getElementById('aiResponse').innerHTML = html;
 }
 
-// ── Render Audit ─────────────────────────────────────────────────────────────
-function renderAudit(data, severity) {
+// ── Render Audit ──────────────────────────────────
+function renderAudit(data, sev) {
   document.getElementById('auditEmpty').style.display = 'none';
   document.getElementById('auditContent').style.display = 'block';
 
   const model = data.model_used || '—';
-  const isDrafter = model.toLowerCase().includes('8b');
-  const tag = document.getElementById('routeTag');
-  tag.className = 'route-tag ' + (isDrafter ? 'route-drafter' : 'route-verifier');
-  tag.textContent = isDrafter ? '⚡ DRAFTER' : '🔬 VERIFIER';
+  const isDraft = model.includes('8b');
+  const rb = document.getElementById('routeBadge');
+  rb.className = 'route-badge ' + (isDraft ? 'route-drafter' : 'route-verifier');
+  rb.textContent = isDraft ? '⚡ DRAFTER' : '🔬 VERIFIER';
 
-  const cost = data.total_cost || 0;
-  const latency = data.latency_ms || 0;
-  const budget = data.severity_budget || 0.25;
-  const savings = data.cost_saved_percentage || 0;
+  const cost = data.total_cost || 0, lat = data.latency_ms || 0;
+  const budget = data.severity_budget || 0.25, savings = data.cost_saved_percentage || 0;
 
-  document.getElementById('metricGrid').innerHTML = `
-    <div class="m-card full"><div class="m-label">Model</div><div class="m-value m-blue" style="font-size:.8rem;word-break:break-all">${escapeHtml(model)}</div></div>
-    <div class="m-card"><div class="m-label">Cost</div><div class="m-value m-green">$${cost.toFixed(6)}</div></div>
-    <div class="m-card"><div class="m-label">Latency</div><div class="m-value m-orange">${latency.toFixed(0)}ms</div></div>
-    <div class="m-card"><div class="m-label">Budget</div><div class="m-value">$${budget.toFixed(2)}</div></div>
-    <div class="m-card"><div class="m-label">Savings</div><div class="m-value ${savings > 0 ? 'm-green' : ''}">${savings.toFixed(1)}%</div></div>
-  `;
+  document.getElementById('auditGrid').innerHTML = `
+    <div class="a-card full"><div class="a-label">Model</div><div class="a-value a-blue" style="font-size:.78rem;word-break:break-all">${esc(model)}</div></div>
+    <div class="a-card"><div class="a-label">Cost</div><div class="a-value a-green">$${cost.toFixed(6)}</div></div>
+    <div class="a-card"><div class="a-label">Latency</div><div class="a-value a-orange">${lat.toFixed(0)}ms</div></div>
+    <div class="a-card"><div class="a-label">Budget</div><div class="a-value">$${budget.toFixed(2)}</div></div>
+    <div class="a-card"><div class="a-label">Savings</div><div class="a-value ${savings > 0 ? 'a-green' : ''}">${savings.toFixed(1)}%</div></div>`;
 
-  const rationales = {
-    P1: '🔴 P1 Critical → Escalated to stronger model ($0.50 budget)',
-    P2: '🟡 P2 High → Standard budget ($0.25), drafter first',
-    P3: '🟢 P3 Medium → Fast/cheap drafter only ($0.10 budget)',
-  };
-  document.getElementById('rationale').textContent = rationales[severity] || '';
+  const rationales = { P1: '🔴 Critical → Verifier model ($0.50 budget)', P2: '🟡 High → Drafter first ($0.25 budget)', P3: '🟢 Medium → Fast drafter ($0.10 budget)' };
+  document.getElementById('auditRationale').textContent = rationales[sev] || '';
 
-  const trace = data.trace || [];
-  const summary = data.summary || {};
-  const traceBtn = document.getElementById('traceBtn');
-  if (trace.length > 0 || Object.keys(summary).length > 0) {
-    traceBtn.style.display = 'block';
-    document.getElementById('traceData').textContent = JSON.stringify({ trace, summary }, null, 2);
-  } else {
-    traceBtn.style.display = 'none';
+  const wrap = document.getElementById('costBarWrap');
+  wrap.style.display = 'block';
+  const pct = Math.min((cost / budget) * 100, 100);
+  document.getElementById('costFill').style.width = pct + '%';
+  document.getElementById('costUsed').textContent = '$' + cost.toFixed(6);
+  document.getElementById('costBudget').textContent = '$' + budget.toFixed(2);
+
+  const trace = data.trace || [], summary = data.summary || {};
+  if (trace.length || Object.keys(summary).length) {
+    document.getElementById('traceToggle').style.display = 'flex';
+    document.getElementById('traceBlock').textContent = JSON.stringify({ trace, summary }, null, 2);
   }
 }
 
-// ── Resolve ──────────────────────────────────────────────────────────────────
+// ── Resolve ───────────────────────────────────────
+function openResolve() { if (active) document.getElementById('resolveModal').style.display = 'flex'; }
+function closeResolve() { document.getElementById('resolveModal').style.display = 'none'; }
+
 async function handleResolve(e) {
   e.preventDefault();
-  if (!activeIncident) return;
+  if (!active) return;
   const rc = document.getElementById('rootCause').value.trim();
   const fix = document.getElementById('fixApplied').value.trim();
   const by = document.getElementById('resolvedBy').value.trim();
-  if (!rc || !fix || !by) return alert('Fill in all fields.');
+  if (!rc || !fix || !by) return toast('Fill in all fields', 'error');
 
-  const status = document.getElementById('resolveStatus');
-  status.innerHTML = '<span style="color:#8891a5">Writing to Hindsight…</span>';
-
+  const st = document.getElementById('resolveStatus');
+  st.innerHTML = '<span style="color:var(--t3)">Writing to Hindsight…</span>';
   try {
     const r = await fetch('/api/resolve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        service_name: activeIncident.service,
-        error_message: activeIncident.error,
-        severity: activeIncident.severity,
-        root_cause: rc, fix_applied: fix, resolved_by: by,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service_name: active.service, error_message: active.error, severity: active.severity, root_cause: rc, fix_applied: fix, resolved_by: by }),
     });
     const d = await r.json();
     if (d.success) {
-      status.innerHTML = '<span class="success-msg">✅ Memory updated! Run same error again to see agent recall this fix.</span>';
-      document.getElementById('resolveForm').reset();
-      loadStats();
-    } else {
-      status.innerHTML = '<span class="error-msg">Failed to write. Check API key.</span>';
-    }
-  } catch (err) {
-    status.innerHTML = `<span class="error-msg">Error: ${err.message}</span>`;
-  }
+      toast('✅ Resolution saved to memory!', 'success');
+      closeResolve(); document.getElementById('resolveForm').reset(); loadStats();
+    } else { st.innerHTML = '<span style="color:var(--red)">Failed</span>'; }
+  } catch (err) { st.innerHTML = `<span style="color:var(--red)">${err.message}</span>`; }
 }
 
-// ── History ──────────────────────────────────────────────────────────────────
-function renderHistory() {
-  if (history.length === 0) return;
-  const bar = document.getElementById('historyBar');
-  bar.style.display = 'block';
-  document.getElementById('historyList').innerHTML = history.slice().reverse().map(h => {
-    const icon = h.hadMemory ? '<span class="mem-hit">🟢</span>' : '<span class="mem-miss">🔴</span>';
-    return `<div class="history-item">${h.time} ${icon} <b>${h.severity}</b> ${h.service} — ${escapeHtml(h.error)} · ${h.model} · $${h.cost.toFixed(6)}</div>`;
+// ── Timeline ──────────────────────────────────────
+function renderTimeline() {
+  const el = document.getElementById('timeline');
+  if (!history.length) return;
+  el.innerHTML = history.slice().reverse().map((h, i) => {
+    const isLast = i === history.length - 1;
+    return `<div class="tl-item">
+      <div class="tl-line"><div class="tl-dot ${h.severity.toLowerCase()}"></div>${isLast ? '' : '<div class="tl-connector"></div>'}</div>
+      <div class="tl-body">
+        <div class="tl-title">${esc(h.error)}</div>
+        <div class="tl-meta">
+          <span>${h.time}</span><span>${h.service}</span><span class="badge badge-sev-${h.severity}" style="padding:1px 6px">${h.severity}</span>
+          <span>${h.hadMemory ? '🟢 Memory' : '🔴 New'}</span>
+          <span>$${h.cost.toFixed(6)}</span>
+        </div>
+      </div></div>`;
   }).join('');
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Analytics ─────────────────────────────────────
+function updateAnalytics() {
+  document.getElementById('aQueries').textContent = totalQ;
+  document.getElementById('aCost').textContent = '$' + totalCost.toFixed(5);
+  document.getElementById('aHitRate').textContent = totalQ ? Math.round(memHits / totalQ * 100) + '%' : '0%';
+  document.getElementById('aLatency').textContent = latencies.length ? Math.round(latencies.reduce((a, b) => a + b) / latencies.length) + 'ms' : '0ms';
+  const verifierCost = 0.00059, drafterCost = 0.00005;
+  const saved = totalQ * (verifierCost - drafterCost) * 500;
+  document.getElementById('aSaved').textContent = '$' + saved.toFixed(4);
+  const drafterCount = history.filter(h => h.model.includes('8b')).length;
+  document.getElementById('aDrafter').textContent = totalQ ? Math.round(drafterCount / totalQ * 100) + '%' : '0%';
+}
+
+// ── Views ─────────────────────────────────────────
+function switchView(v) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-' + v).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === v));
+}
+
+// ── Command Palette ───────────────────────────────
+function toggleCmd() { const o = document.getElementById('cmdOverlay'); o.style.display = o.style.display === 'none' ? 'flex' : 'none'; if (o.style.display === 'flex') document.getElementById('cmdInput').focus(); }
+function closeCmd() { document.getElementById('cmdOverlay').style.display = 'none'; }
+function cmdAction(a) { closeCmd(); if (a === 'history') switchView('history'); else if (a === 'analytics') switchView('analytics'); else switchView('dashboard'); }
+function cmdService(s) { closeCmd(); switchView('dashboard'); document.getElementById('service').value = s; }
+document.getElementById('cmdOverlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeCmd(); });
+
+// ── Loading ───────────────────────────────────────
 function showLoading(show) {
   document.getElementById('loadingState').style.display = show ? 'block' : 'none';
   document.getElementById('emptyState').style.display = 'none';
-  document.getElementById('responseContent').style.display = show ? 'none' : (activeIncident ? 'block' : 'none');
+  document.getElementById('responseContent').style.display = show ? 'none' : (active ? 'block' : 'none');
   document.getElementById('analyzeBtn').disabled = show;
+  if (show) {
+    const steps = ['step1', 'step2', 'step3'];
+    steps.forEach(s => { document.getElementById(s).className = 'step'; });
+    document.getElementById('step1').classList.add('active');
+    setTimeout(() => { document.getElementById('step1').classList.replace('active', 'done'); document.getElementById('step2').classList.add('active'); }, 800);
+    setTimeout(() => { document.getElementById('step2').classList.replace('active', 'done'); document.getElementById('step3').classList.add('active'); }, 1800);
+  }
 }
 
-function updateSessionStats() {
-  const el = document.getElementById('sessionStats');
-  el.style.display = 'block';
-  document.getElementById('queryCount').textContent = totalQueries;
-  document.getElementById('totalCost').textContent = totalCost.toFixed(5);
+// ── Toast ─────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const c = document.getElementById('toasts');
+  const t = document.createElement('div');
+  t.className = 'toast ' + type; t.textContent = msg;
+  c.appendChild(t); setTimeout(() => t.remove(), 3500);
 }
 
-function toggleMemories() {
-  const list = document.getElementById('memoriesList');
-  const icon = document.getElementById('expandIcon');
-  const show = list.style.display === 'none';
-  list.style.display = show ? 'block' : 'none';
-  icon.textContent = show ? '▾' : '▸';
-}
-
-function toggleTrace() {
-  const el = document.getElementById('traceData');
-  const icon = document.getElementById('traceIcon');
-  const show = el.style.display === 'none';
-  el.style.display = show ? 'block' : 'none';
-  icon.textContent = show ? '▾' : '▸';
-}
-
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-function markdownToHtml(md) {
-  return md
-    .replace(/### (.*)/g, '<h3>$1</h3>')
-    .replace(/## (.*)/g, '<h3>$1</h3>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`(.*?)`/g, '<code>$1</code>')
-    .replace(/^\- (.*)/gm, '<li>$1</li>')
-    .replace(/^\d+\. (.*)/gm, '<li>$1</li>')
-    .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
-    .replace(/<\/ul>\s*<ul>/g, '')
-    .replace(/\n\n/g, '<br><br>')
-    .replace(/\n/g, '<br>');
+// ── Helpers ───────────────────────────────────────
+function toggleEl(id) { const el = document.getElementById(id); el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function md(t) {
+  return t.replace(/### (.*)/g, '<h3>$1</h3>').replace(/## (.*)/g, '<h3>$1</h3>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/`(.*?)`/g, '<code>$1</code>')
+    .replace(/^\- (.*)/gm, '<li>$1</li>').replace(/^\d+\. (.*)/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>').replace(/<\/ul>\s*<ul>/g, '')
+    .replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
 }
