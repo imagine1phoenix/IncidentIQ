@@ -1,27 +1,26 @@
 """
-POST /api/analyze — Analyze an incident using Hindsight memory + cascadeflow routing.
-
-Request body:
-  { "service_name": "user-db", "error_message": "...", "severity": "P1" }
-
-Response:
-  { "response": "...", "model_used": "...", "total_cost": 0.0, ... , "memories": [...] }
+POST /api/analyze — Analyze an incident using Hindsight memory + Groq LLM.
+Serverless-safe: no threads, no async, no cascadeflow (pure HTTP calls).
 """
 
 import json
 import os
 import time
-import asyncio
-import threading
-from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler
-
 import requests as http_requests
 
-# ── Hindsight config ─────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 HINDSIGHT_API_URL = os.environ.get("HINDSIGHT_API_URL", "https://api.hindsight.vectorize.io")
 HINDSIGHT_API_KEY = os.environ.get("HINDSIGHT_API_KEY", "")
 BANK_ID = os.environ.get("HINDSIGHT_BANK_ID", "incident-iq-memory")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+# cascadeflow-style model routing config
+MODELS = {
+    "drafter": {"name": "llama-3.1-8b-instant", "cost_per_1k": 0.00005},
+    "verifier": {"name": "llama-3.3-70b-versatile", "cost_per_1k": 0.00059},
+}
+BUDGETS = {"P1": 0.50, "P2": 0.25, "P3": 0.10}
 
 
 def _hs_headers():
@@ -29,91 +28,78 @@ def _hs_headers():
 
 
 def recall(service_name, error_message):
-    """Semantic recall from Hindsight."""
-    query = f"Incident on {service_name}: {error_message}. What was the root cause and fix?"
+    """Semantic recall from Hindsight memory."""
     try:
         r = http_requests.post(
             f"{HINDSIGHT_API_URL}/v1/default/banks/{BANK_ID}/memories/recall",
             headers=_hs_headers(),
-            json={"query": query, "max_tokens": 2000, "budget": "high"},
-            timeout=25,
+            json={
+                "query": f"Incident on {service_name}: {error_message}. Root cause and fix?",
+                "max_tokens": 2000,
+                "budget": "high",
+            },
+            timeout=20,
         )
         if r.status_code == 200:
             return [m.get("text", "") for m in r.json().get("results", []) if m.get("text")]
-        return []
     except Exception:
-        return []
+        pass
+    return []
 
 
-# ── cascadeflow agent ────────────────────────────────────────────────────────
-import cascadeflow
-from cascadeflow import CascadeAgent, ModelConfig
-
-cascadeflow.init(mode="enforce")
-
-
-def _get_agent():
-    return CascadeAgent(
-        models=[
-            ModelConfig(name="llama-3.1-8b-instant", provider="groq", cost=0.00005),
-            ModelConfig(name="llama-3.3-70b-versatile", provider="groq", cost=0.00059),
-        ],
-        quality={"confidence_thresholds": {"default": 0.7}},
-    )
-
-
-def _run_async(coro):
-    fut = Future()
-
-    def _target():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            fut.set_result(loop.run_until_complete(coro))
-        except Exception as e:
-            fut.set_exception(e)
-        finally:
-            loop.close()
-
-    t = threading.Thread(target=_target)
-    t.start()
-    t.join(timeout=55)
-    return fut.result(timeout=5)
+def call_groq(prompt, model_name, max_tokens=1024):
+    """Direct Groq API call — no SDK needed, pure HTTP."""
+    try:
+        r = http_requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+                "temperature": 0.3,
+            },
+            timeout=30,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            usage = data.get("usage", {})
+            content = data["choices"][0]["message"]["content"]
+            return content, usage
+    except Exception:
+        pass
+    return None, {}
 
 
-async def _agent_run(prompt, severity):
-    agent = _get_agent()
-    budget = {"P1": 0.50, "P2": 0.25, "P3": 0.10}.get(severity, 0.25)
+def cascade_route(prompt, severity):
+    """
+    cascadeflow-style routing: try drafter first, escalate to verifier for P1.
+    Returns (response, model_used, cost, latency_ms).
+    """
     t0 = time.time()
 
-    try:
-        with cascadeflow.run(budget=budget, max_tool_calls=5, max_latency_ms=30000) as session:
-            result = await agent.run(prompt)
-            return {
-                "response": result.content,
-                "model_used": result.model_used or "—",
-                "total_cost": getattr(result, "total_cost", 0.0),
-                "cost_saved_percentage": getattr(result, "cost_saved_percentage", 0.0),
-                "latency_ms": (time.time() - t0) * 1000,
-                "severity_budget": budget,
-                "summary": session.summary(),
-                "trace": session.trace(),
-            }
-    except Exception as e:
-        return {
-            "response": f"⚠️ Agent error: {e}",
-            "model_used": "—",
-            "total_cost": 0.0,
-            "cost_saved_percentage": 0.0,
-            "latency_ms": (time.time() - t0) * 1000,
-            "severity_budget": budget,
-            "summary": {},
-            "trace": [],
-            "error": str(e),
-        }
+    # For P1 critical: go straight to the verifier
+    if severity == "P1":
+        model = MODELS["verifier"]
+        content, usage = call_groq(prompt, model["name"], max_tokens=1200)
+        latency = (time.time() - t0) * 1000
+        tokens = usage.get("total_tokens", 0)
+        cost = tokens * model["cost_per_1k"] / 1000
+        return content, model["name"], cost, latency, "verifier"
+
+    # For P2/P3: use cheap drafter
+    model = MODELS["drafter"]
+    content, usage = call_groq(prompt, model["name"], max_tokens=1024)
+    latency = (time.time() - t0) * 1000
+    tokens = usage.get("total_tokens", 0)
+    cost = tokens * model["cost_per_1k"] / 1000
+    return content, model["name"], cost, latency, "drafter"
 
 
-# ── Handler ──────────────────────────────────────────────────────────────────
+# ── Vercel Handler ────────────────────────────────────────────────────────────
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -124,10 +110,7 @@ class handler(BaseHTTPRequestHandler):
         severity = body.get("severity", "P2")
 
         if not service or not error:
-            self.send_response(400)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "service_name and error_message required"}).encode())
+            self._json(400, {"error": "service_name and error_message required"})
             return
 
         # 1. Recall from Hindsight
@@ -164,20 +147,30 @@ Otherwise: "**General suggestion:** [best practice]".
 
 Be concise and specific."""
 
-        # 3. Run agent
-        try:
-            data = _run_async(_agent_run(prompt, severity))
-        except Exception as e:
-            data = {"response": f"Agent error: {e}", "error": str(e)}
+        # 3. Route through cascade
+        content, model_used, cost, latency, route_type = cascade_route(prompt, severity)
 
-        data["memories"] = memories[:5]
-        data["memory_count"] = len(memories)
+        if content is None:
+            content = "⚠️ LLM call failed. Check GROQ_API_KEY."
 
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(json.dumps(data, default=str).encode())
+        budget = BUDGETS.get(severity, 0.25)
+        verifier_cost = MODELS["verifier"]["cost_per_1k"]
+        drafter_cost = MODELS["drafter"]["cost_per_1k"]
+        savings = ((verifier_cost - drafter_cost) / verifier_cost * 100) if route_type == "drafter" else 0
+
+        self._json(200, {
+            "response": content,
+            "model_used": model_used,
+            "total_cost": cost,
+            "cost_saved_percentage": round(savings, 1),
+            "latency_ms": round(latency, 1),
+            "severity_budget": budget,
+            "route_type": route_type,
+            "memories": memories[:5],
+            "memory_count": len(memories),
+            "summary": {"route": route_type, "model": model_used, "budget": budget},
+            "trace": [{"step": 1, "action": route_type, "reason": f"Severity {severity} → {route_type}"}],
+        })
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -185,3 +178,10 @@ Be concise and specific."""
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def _json(self, code, data):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps(data, default=str).encode())

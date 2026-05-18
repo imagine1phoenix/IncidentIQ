@@ -1,4 +1,2 @@
-cascadeflow
-groq
-python-dotenv
 requests
+python-dotenv
