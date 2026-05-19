@@ -33,12 +33,12 @@ When a critical alert fires at 3 AM, your on-call engineer doesn't need generic 
                                             └──────────┬──────────┘
                                                        │
                                             ┌──────────▼──────────┐
-                                            │  Streamlit Dashboard │
-                                            │  • Assessment        │
-                                            │  • Suggested Fix     │
-                                            │  • Next Steps        │
-                                            │  • Audit Trail       │
-                                            └─────────────────────┘
+                                             │  Web Dashboard       │
+                                             │  • Assessment        │
+                                             │  • Suggested Fix     │
+                                             │  • Next Steps        │
+                                             │  • Audit Trail       │
+                                             └─────────────────────┘
 ```
 
 ## 🛠️ Tech Stack
@@ -48,7 +48,8 @@ When a critical alert fires at 3 AM, your on-call engineer doesn't need generic 
 | **Memory** | [Hindsight](https://hindsight.vectorize.io) | Persistent incident memory — semantic recall, entity graphs, temporal search |
 | **Runtime** | [cascadeflow](https://docs.cascadeflow.ai/) | Model routing, budget enforcement, full audit trail per query |
 | **LLMs** | [Groq](https://console.groq.com) | `llama-3.1-8b-instant` (drafter) + `llama-3.3-70b-versatile` (verifier) |
-| **UI** | [Streamlit](https://streamlit.io) | Real-time dashboard with dark-mode design |
+| **UI** | HTML/CSS/JS + [Streamlit](https://streamlit.io) | Web dashboard (Vercel) + Streamlit (local dev) |
+| **Hosting** | [Vercel](https://vercel.com) | Serverless Python functions + static frontend |
 | **Language** | Python 3.9+ | |
 
 ## 🧠 How Hindsight Memory Works
@@ -118,17 +119,17 @@ python seed.py
 ```
 
 ### 5. Deploy to Vercel
-```bash
-npm i -g vercel
-vercel --cwd incidentiq
-```
-Set these **Environment Variables** in the Vercel dashboard:
-- `HINDSIGHT_API_KEY`
-- `HINDSIGHT_API_URL`
-- `HINDSIGHT_BANK_ID`
-- `GROQ_API_KEY`
 
-Set **Root Directory** to `incidentiq` in Vercel project settings.
+🔗 **Live Demo**: [incident-iq-inky.vercel.app](https://incident-iq-inky.vercel.app)
+
+To deploy your own:
+1. Import the GitHub repo at [vercel.com/new](https://vercel.com/new)
+2. Set these **Environment Variables** in the Vercel dashboard:
+   - `HINDSIGHT_API_KEY`
+   - `HINDSIGHT_API_URL`
+   - `HINDSIGHT_BANK_ID`
+   - `GROQ_API_KEY`
+3. Deploy — Vercel auto-detects `api/` (Python serverless) and `public/` (static frontend)
 
 ### 5b. Run Locally (Streamlit — optional)
 ```bash
@@ -159,24 +160,23 @@ Point to right panel: model routing, cost savings, budget enforcement.
 ## 📁 Project Structure
 
 ```
-incidentiq/
-├── public/                  # Static frontend (deployed on Vercel)
-│   ├── index.html           # Premium dark-mode dashboard
-│   ├── styles.css           # Design system
-│   └── app.js               # Client-side logic
-├── api/                     # Vercel serverless functions
+├── api/                     # Vercel serverless functions (repo root)
 │   ├── analyze.py           # POST /api/analyze — memory recall + LLM
 │   ├── resolve.py           # POST /api/resolve — log fix to Hindsight
 │   └── stats.py             # GET /api/stats — memory bank stats
-├── main.py                  # Streamlit UI (local dev alternative)
-├── agent.py                 # Core agent logic (used by main.py)
-├── memory.py                # Hindsight client (used by main.py)
-├── runtime.py               # cascadeflow config (used by main.py)
-├── seed.py                  # Seeds 20 incidents into Hindsight
-├── vercel.json              # Vercel deployment config
+├── public/                  # Static frontend (repo root)
+│   ├── index.html           # Premium dark-mode dashboard
+│   ├── styles.css           # Design system
+│   └── app.js               # Client-side logic
 ├── requirements.txt         # Python dependencies
-└── data/
-    └── seed_incidents.json  # 20 realistic DevOps incidents
+└── incidentiq/              # Core logic + Streamlit (local dev)
+    ├── main.py              # Streamlit UI
+    ├── agent.py             # Core agent logic
+    ├── memory.py            # Hindsight client
+    ├── runtime.py           # cascadeflow config
+    ├── seed.py              # Seeds 20 incidents into Hindsight
+    └── data/
+        └── seed_incidents.json
 ```
 
 ## 🏆 Hackathon Criteria Addressed
