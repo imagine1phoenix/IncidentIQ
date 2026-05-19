@@ -188,3 +188,35 @@ Point to right panel: model routing, cost savings, budget enforcement.
 | **Innovation** | Agent that *learns* from your team's fixes — not generic knowledge |
 | **Demo Quality** | Before/after memory recall + real-time learning in 60 seconds |
 | **Production Readiness** | Vercel deployment, serverless API, dark-mode UI, session history |
+
+## 🔐 Security Features
+
+- **PII Scrubbing** — All input is scrubbed for credentials, API keys, IPs, emails, and tokens before being sent to Groq or Hindsight. Regex-based patterns catch `password=`, `Bearer` tokens, email addresses, and more.
+- **Confidence Threshold** — Memory matches are only labeled as "✓ MEMORY MATCH" if the similarity score is ≥ 0.85, reducing false positives.
+
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘K` / `Ctrl+K` | Open Command Palette — search past incidents |
+| `ESC` | Close Command Palette |
+
+## 📤 Export Capabilities
+
+- **📄 Export RCA** — Downloads a Markdown Root Cause Analysis report (for Confluence/Notion/SOC2)
+- **📊 Export Audit** — Downloads full JSON audit trail (incident, model, cost, trace, session history)
+
+## 🗺️ Roadmap
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| PII Scrubbing | ✅ Shipped | Regex scrubs credentials, IPs, emails before LLM/memory calls |
+| Confidence Scores | ✅ Shipped | Only shows "MEMORY MATCH" if score > 0.85 |
+| Command Palette (⌘K) | ✅ Shipped | Search past incidents from Hindsight memory |
+| RCA Export | ✅ Shipped | One-click Markdown report generation |
+| Audit Trail Export | ✅ Shipped | JSON export for SOC2 compliance |
+| Slack Bot | 🔜 Planned | React to incidents with emoji → log fix via Slack |
+| Unified Next.js Stack | 🔜 Planned | Replace Streamlit + static split with Next.js |
+| PagerDuty Auto-Link | 🔜 Planned | Auto-link PagerDuty incident IDs to Hindsight memory |
+| Local LLM Fallback | 🔜 Planned | Route P3 incidents to Ollama for 100% data privacy |
+| Interactive Entity Graph | 🔜 Planned | D3.js visualization of incident blast radius |

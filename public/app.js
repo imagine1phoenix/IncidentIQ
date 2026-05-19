@@ -1,14 +1,21 @@
 // ── State ────────────────────────────────────────────────────────────────────
 let activeIncident = null;
+let lastAnalysisData = null;
 let history = [];
 let totalQueries = 0;
 let totalCost = 0;
+let searchTimeout = null;
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadStats();
   document.getElementById('alertForm').addEventListener('submit', handleAnalyze);
   document.getElementById('resolveForm').addEventListener('submit', handleResolve);
+  // Ctrl+K / Cmd+K to open command palette
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openCmdPalette(); }
+    if (e.key === 'Escape') closeCmdPalette();
+  });
 });
 
 async function loadStats() {
@@ -65,34 +72,51 @@ async function handleAnalyze(e) {
 function renderResponse(data, severity) {
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('responseContent').style.display = 'block';
+  lastAnalysisData = data;
 
+  const hasConfidentMatch = data.has_confident_match || false;
+  const topConf = data.top_confidence || 0;
   const hasMemory = (data.memory_count || 0) > 0;
   const badgeRow = document.getElementById('badgeRow');
-  badgeRow.innerHTML =
-    `<span class="badge badge-sev sev-${severity}">${severity}</span>` +
-    (hasMemory
-      ? '<span class="badge badge-memory">✓ MEMORY MATCH</span>'
-      : '<span class="badge badge-general">ℹ NEW ERROR TYPE</span>') +
-    `<span style="color:#8891a5;font-size:.75rem;margin-left:4px">${activeIncident.service} · ${activeIncident.error.slice(0, 50)}</span>`;
 
-  // Memories
+  let badges = `<span class="badge badge-sev sev-${severity}">${severity}</span>`;
+  if (hasConfidentMatch) {
+    badges += `<span class="badge badge-memory">✓ MEMORY MATCH (${(topConf * 100).toFixed(0)}%)</span>`;
+  } else if (hasMemory) {
+    badges += `<span class="badge badge-general">⚠ LOW CONFIDENCE (${(topConf * 100).toFixed(0)}%)</span>`;
+  } else {
+    badges += '<span class="badge badge-general">ℹ NEW ERROR TYPE</span>';
+  }
+  if (data.pii_scrubbed) badges += '<span class="badge badge-pii">🔒 PII SCRUBBED</span>';
+  badges += `<span style="color:#8891a5;font-size:.75rem;margin-left:4px">${activeIncident.service} · ${activeIncident.error.slice(0, 50)}</span>`;
+  badgeRow.innerHTML = badges;
+
+  // Memories with confidence scores
   const memories = data.memories || [];
   const expander = document.getElementById('memoriesExpander');
   if (memories.length > 0) {
     expander.style.display = 'block';
     document.getElementById('memCount').textContent = memories.length;
     const list = document.getElementById('memoriesList');
-    list.innerHTML = memories.map((m, i) =>
-      `<div class="memory-item"><b>Memory #${i + 1}</b><br>${escapeHtml(m)}</div>`
-    ).join('');
+    list.innerHTML = memories.map((m, i) => {
+      const text = typeof m === 'string' ? m : m.text;
+      const score = typeof m === 'object' ? m.score : 0;
+      const pct = (score * 100).toFixed(0);
+      const confClass = score >= 0.85 ? 'conf-high' : score >= 0.5 ? 'conf-med' : 'conf-low';
+      return `<div class="memory-item">
+        <b>Memory #${i + 1}</b> <span class="cmd-result-score">${pct}% match</span>
+        <div class="confidence-bar"><div class="confidence-fill ${confClass}" style="width:${pct}%"></div></div>
+        <br>${escapeHtml(text)}
+      </div>`;
+    }).join('');
   } else {
     expander.style.display = 'none';
   }
 
-  // Agent response — convert markdown-like headings
   const html = markdownToHtml(data.response || 'No response.');
   document.getElementById('agentResponse').innerHTML = html;
   document.getElementById('resolveSection').style.display = 'block';
+  document.getElementById('exportBar').style.display = 'flex';
 }
 
 // ── Render Audit ─────────────────────────────────────────────────────────────
@@ -233,4 +257,118 @@ function markdownToHtml(md) {
     .replace(/<\/ul>\s*<ul>/g, '')
     .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
+}
+
+// ── Command Palette ──────────────────────────────────────────────────────────
+function openCmdPalette() {
+  document.getElementById('cmdOverlay').classList.add('active');
+  setTimeout(() => document.getElementById('cmdInput').focus(), 50);
+}
+
+function closeCmdPalette() {
+  document.getElementById('cmdOverlay').classList.remove('active');
+  document.getElementById('cmdInput').value = '';
+  document.getElementById('cmdResults').innerHTML = '<div class="cmd-empty">Type to search Hindsight memory for past incidents</div>';
+}
+
+async function searchIncidents(query) {
+  clearTimeout(searchTimeout);
+  if (query.length < 2) {
+    document.getElementById('cmdResults').innerHTML = '<div class="cmd-empty">Type to search Hindsight memory for past incidents</div>';
+    return;
+  }
+  document.getElementById('cmdResults').innerHTML = '<div class="cmd-loading">Searching…</div>';
+  searchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_name: 'search', error_message: query, severity: 'P3' }),
+      });
+      const data = await r.json();
+      const memories = data.memories || [];
+      if (memories.length === 0) {
+        document.getElementById('cmdResults').innerHTML = '<div class="cmd-empty">No matching incidents found</div>';
+        return;
+      }
+      document.getElementById('cmdResults').innerHTML = memories.map(m => {
+        const text = typeof m === 'string' ? m : m.text;
+        const score = typeof m === 'object' ? m.score : 0;
+        return `<div class="cmd-result-item">
+          <span class="cmd-result-score">${(score * 100).toFixed(0)}% match</span><br>
+          ${escapeHtml(text.slice(0, 200))}${text.length > 200 ? '…' : ''}
+        </div>`;
+      }).join('');
+    } catch {
+      document.getElementById('cmdResults').innerHTML = '<div class="cmd-empty">Search failed</div>';
+    }
+  }, 500);
+}
+
+// ── Export Functions ─────────────────────────────────────────────────────────
+function exportRCA() {
+  if (!activeIncident || !lastAnalysisData) return;
+  const d = lastAnalysisData;
+  const now = new Date().toISOString();
+  const rca = `# Root Cause Analysis — ${activeIncident.service}
+
+**Generated:** ${now}
+**Severity:** ${activeIncident.severity}
+**Service:** ${activeIncident.service}
+**Error:** ${activeIncident.error}
+
+---
+
+## Agent Analysis
+
+${d.response || 'N/A'}
+
+## Memory Context
+
+- Memories recalled: ${d.memory_count || 0}
+- Confidence match: ${d.has_confident_match ? 'Yes' : 'No'} (${((d.top_confidence || 0) * 100).toFixed(0)}%)
+- PII scrubbed: ${d.pii_scrubbed ? 'Yes' : 'No'}
+
+## Routing Decision
+
+- Model: ${d.model_used}
+- Route: ${d.route_type}
+- Cost: $${(d.total_cost || 0).toFixed(6)}
+- Latency: ${(d.latency_ms || 0).toFixed(0)}ms
+- Budget: $${(d.severity_budget || 0).toFixed(2)}
+`;
+  downloadFile(`rca-${activeIncident.service}-${Date.now()}.md`, rca, 'text/markdown');
+}
+
+function exportAudit() {
+  if (!lastAnalysisData) return;
+  const payload = {
+    exported_at: new Date().toISOString(),
+    incident: activeIncident,
+    analysis: {
+      model: lastAnalysisData.model_used,
+      route: lastAnalysisData.route_type,
+      cost: lastAnalysisData.total_cost,
+      latency_ms: lastAnalysisData.latency_ms,
+      budget: lastAnalysisData.severity_budget,
+      savings_pct: lastAnalysisData.cost_saved_percentage,
+    },
+    memory: {
+      count: lastAnalysisData.memory_count,
+      confident_match: lastAnalysisData.has_confident_match,
+      top_confidence: lastAnalysisData.top_confidence,
+    },
+    pii_scrubbed: lastAnalysisData.pii_scrubbed,
+    trace: lastAnalysisData.trace,
+    session_history: history,
+  };
+  downloadFile(`audit-${Date.now()}.json`, JSON.stringify(payload, null, 2), 'application/json');
+}
+
+function downloadFile(name, content, type) {
+  const blob = new Blob([content], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
 }

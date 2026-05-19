@@ -182,3 +182,75 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   font-family: 'JetBrains Mono', monospace;
 }
 .history-item .mem-hit { color: var(--green); } .history-item .mem-miss { color: var(--red); }
+
+/* ── Header right ─────────────────────────── */
+.header-right { display: flex; align-items: center; gap: 10px; }
+.kbd-hint {
+  padding: 4px 10px; border-radius: 6px; font-size: .7rem; font-weight: 600;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text2);
+  cursor: pointer; font-family: 'JetBrains Mono', monospace; transition: all .2s;
+}
+.kbd-hint:hover { border-color: var(--blue); color: var(--text); }
+
+/* ── Export bar ───────────────────────────── */
+.export-bar { display: flex; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.export-btn {
+  flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg); color: var(--text2); font-size: .75rem; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: all .2s;
+}
+.export-btn:hover { border-color: var(--blue); color: var(--text); }
+
+/* ── Confidence bar ──────────────────────── */
+.confidence-bar {
+  height: 4px; border-radius: 2px; background: var(--border); margin-top: 4px; overflow: hidden;
+}
+.confidence-fill { height: 100%; border-radius: 2px; transition: width .4s ease; }
+.conf-high { background: var(--green); }
+.conf-med { background: var(--orange); }
+.conf-low { background: var(--red); }
+
+/* ── PII badge ───────────────────────────── */
+.badge-pii {
+  background: rgba(76,110,245,.1); color: var(--blue); border: 1px solid rgba(76,110,245,.2);
+}
+
+/* ── Command Palette ─────────────────────── */
+.cmd-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+  display: none; justify-content: center; align-items: flex-start;
+  padding-top: 15vh; z-index: 1000;
+}
+.cmd-overlay.active { display: flex; }
+.cmd-modal {
+  width: 560px; max-width: 90vw; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.5); overflow: hidden;
+  animation: cmdIn .15s ease;
+}
+@keyframes cmdIn { from { opacity: 0; transform: scale(.96) translateY(-10px); } }
+.cmd-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.cmd-header input {
+  flex: 1; background: transparent; border: none; color: var(--text);
+  font-size: 1rem; font-family: inherit; outline: none;
+}
+.cmd-header kbd {
+  padding: 3px 8px; border-radius: 4px; font-size: .65rem;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text2);
+  font-family: 'JetBrains Mono', monospace;
+}
+.cmd-results { max-height: 300px; overflow-y: auto; padding: 8px; }
+.cmd-empty { padding: 30px; text-align: center; color: var(--text2); font-size: .85rem; }
+.cmd-result-item {
+  padding: 10px 12px; border-radius: 8px; cursor: pointer;
+  font-size: .82rem; color: var(--text2); line-height: 1.5;
+  border-left: 3px solid transparent; margin-bottom: 4px;
+  transition: all .15s;
+}
+.cmd-result-item:hover { background: var(--bg-hover); border-left-color: var(--blue); color: var(--text); }
+.cmd-result-score { font-size: .7rem; color: var(--green); font-weight: 600; }
+.cmd-loading { padding: 30px; text-align: center; color: var(--text2); }

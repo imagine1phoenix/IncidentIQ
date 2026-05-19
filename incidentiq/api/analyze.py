@@ -5,6 +5,7 @@ Serverless-safe: no threads, no async, no cascadeflow (pure HTTP calls).
 
 import json
 import os
+import re
 import time
 from http.server import BaseHTTPRequestHandler
 import requests as http_requests
@@ -23,25 +24,48 @@ MODELS = {
 BUDGETS = {"P1": 0.50, "P2": 0.25, "P3": 0.10}
 
 
+# ── PII Scrubbing ─────────────────────────────────────────────────────────────
+PII_PATTERNS = [
+    (re.compile(r'(?:password|passwd|pwd|secret|token|api_key|apikey|auth)\s*[=:]\s*\S+', re.I), '[REDACTED_CREDENTIAL]'),
+    (re.compile(r'Bearer\s+[A-Za-z0-9\-_.~+/]+=*', re.I), 'Bearer [REDACTED_TOKEN]'),
+    (re.compile(r'\b[A-Za-z0-9]{20,}(?:_[A-Za-z0-9]{10,})\b'), '[REDACTED_KEY]'),
+    (re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'), '[REDACTED_IP]'),
+    (re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'), '[REDACTED_EMAIL]'),
+    (re.compile(r'\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b'), '[REDACTED_SSN]'),
+]
+
+CONFIDENCE_THRESHOLD = 0.85
+
+
+def scrub_pii(text):
+    """Strip credentials, IPs, emails, tokens from text before sending to LLM/memory."""
+    for pattern, replacement in PII_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def _hs_headers():
     return {"Authorization": f"Bearer {HINDSIGHT_API_KEY}", "Content-Type": "application/json"}
 
 
 def recall(service_name, error_message):
-    """Semantic recall from Hindsight memory."""
+    """Semantic recall from Hindsight memory with confidence scores."""
+    query = scrub_pii(f"Incident on {service_name}: {error_message}. Root cause and fix?")
     try:
         r = http_requests.post(
             f"{HINDSIGHT_API_URL}/v1/default/banks/{BANK_ID}/memories/recall",
             headers=_hs_headers(),
-            json={
-                "query": f"Incident on {service_name}: {error_message}. Root cause and fix?",
-                "max_tokens": 2000,
-                "budget": "high",
-            },
+            json={"query": query, "max_tokens": 2000, "budget": "high"},
             timeout=20,
         )
         if r.status_code == 200:
-            return [m.get("text", "") for m in r.json().get("results", []) if m.get("text")]
+            results = []
+            for m in r.json().get("results", []):
+                text = m.get("text", "")
+                score = m.get("score", m.get("relevance", m.get("similarity", 0.0)))
+                if text:
+                    results.append({"text": text, "score": round(float(score), 3) if score else 0.0})
+            return results
     except Exception:
         pass
     return []
@@ -69,9 +93,12 @@ def call_groq(prompt, model_name, max_tokens=1024):
             usage = data.get("usage", {})
             content = data["choices"][0]["message"]["content"]
             return content, usage
-    except Exception:
-        pass
-    return None, {}
+        else:
+            # Return the actual error so we can debug
+            return f"Groq API error {r.status_code}: {r.text[:200]}", {}
+    except Exception as e:
+        return f"Groq exception: {str(e)}", {}
+
 
 
 def cascade_route(prompt, severity):
@@ -113,14 +140,18 @@ class handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "service_name and error_message required"})
             return
 
-        # 1. Recall from Hindsight
-        memories = recall(service, error)
+        # 1. Recall from Hindsight (returns [{text, score}, ...])
+        raw_memories = recall(service, error)
+        # Filter by confidence threshold
+        confident = [m for m in raw_memories if m.get("score", 0) >= CONFIDENCE_THRESHOLD]
+        all_memories = confident if confident else raw_memories[:3]  # fallback to top 3
 
-        # 2. Build prompt
-        if memories:
+        # 2. Build prompt (scrub PII before sending to LLM)
+        scrubbed_error = scrub_pii(error)
+        if all_memories:
             block = "═══ PAST INCIDENTS FROM HINDSIGHT MEMORY ═══\n"
-            for i, m in enumerate(memories[:5], 1):
-                block += f"\n▸ Memory #{i}:\n{m}\n"
+            for i, m in enumerate(all_memories[:5], 1):
+                block += f"\n▸ Memory #{i} (confidence: {m.get('score', '?')}):\n{m['text']}\n"
             block += "\n═══ END ═══"
         else:
             block = "═══ NO PAST INCIDENTS FOUND ═══\nProvide general DevOps best-practice advice.\n═══ END ═══"
@@ -129,7 +160,7 @@ class handler(BaseHTTPRequestHandler):
 
 ━━━ ALERT ━━━
 SERVICE: {service}
-ERROR: {error}
+ERROR: {scrubbed_error}
 SEVERITY: {severity}
 
 {block}
@@ -150,13 +181,17 @@ Be concise and specific."""
         # 3. Route through cascade
         content, model_used, cost, latency, route_type = cascade_route(prompt, severity)
 
-        if content is None:
-            content = "⚠️ LLM call failed. Check GROQ_API_KEY."
+        if not content:
+            content = f"⚠️ LLM call failed. GROQ_API_KEY set: {bool(GROQ_API_KEY)}, length: {len(GROQ_API_KEY)}"
 
         budget = BUDGETS.get(severity, 0.25)
         verifier_cost = MODELS["verifier"]["cost_per_1k"]
         drafter_cost = MODELS["drafter"]["cost_per_1k"]
         savings = ((verifier_cost - drafter_cost) / verifier_cost * 100) if route_type == "drafter" else 0
+
+        # Determine if we have a high-confidence match
+        top_score = max((m.get("score", 0) for m in raw_memories), default=0)
+        has_confident_match = top_score >= CONFIDENCE_THRESHOLD
 
         self._json(200, {
             "response": content,
@@ -166,10 +201,17 @@ Be concise and specific."""
             "latency_ms": round(latency, 1),
             "severity_budget": budget,
             "route_type": route_type,
-            "memories": memories[:5],
-            "memory_count": len(memories),
+            "memories": [{"text": m["text"], "score": m.get("score", 0)} for m in all_memories[:5]],
+            "memory_count": len(all_memories),
+            "has_confident_match": has_confident_match,
+            "top_confidence": round(top_score, 3),
+            "pii_scrubbed": True,
             "summary": {"route": route_type, "model": model_used, "budget": budget},
-            "trace": [{"step": 1, "action": route_type, "reason": f"Severity {severity} → {route_type}"}],
+            "trace": [
+                {"step": 1, "action": "pii_scrub", "reason": "Input scrubbed for credentials, IPs, emails"},
+                {"step": 2, "action": "hindsight_recall", "reason": f"Found {len(raw_memories)} memories, {len(confident)} above {CONFIDENCE_THRESHOLD} threshold"},
+                {"step": 3, "action": route_type, "reason": f"Severity {severity} → {route_type}"},
+            ],
         })
 
     def do_OPTIONS(self):

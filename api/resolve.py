@@ -8,6 +8,7 @@ Request body:
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 import requests as http_requests
@@ -15,6 +16,20 @@ import requests as http_requests
 HINDSIGHT_API_URL = os.environ.get("HINDSIGHT_API_URL", "https://api.hindsight.vectorize.io")
 HINDSIGHT_API_KEY = os.environ.get("HINDSIGHT_API_KEY", "")
 BANK_ID = os.environ.get("HINDSIGHT_BANK_ID", "incident-iq-memory")
+
+# PII patterns (shared with analyze.py)
+PII_PATTERNS = [
+    (re.compile(r'(?:password|passwd|pwd|secret|token|api_key|apikey|auth)\s*[=:]\s*\S+', re.I), '[REDACTED_CREDENTIAL]'),
+    (re.compile(r'Bearer\s+[A-Za-z0-9\-_.~+/]+=*', re.I), 'Bearer [REDACTED_TOKEN]'),
+    (re.compile(r'\b[A-Za-z0-9]{20,}(?:_[A-Za-z0-9]{10,})\b'), '[REDACTED_KEY]'),
+    (re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'), '[REDACTED_IP]'),
+    (re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'), '[REDACTED_EMAIL]'),
+]
+
+def scrub_pii(text):
+    for pattern, replacement in PII_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 def _hs_headers():
@@ -42,7 +57,8 @@ class handler(BaseHTTPRequestHandler):
             return
 
         now = datetime.now(timezone.utc).isoformat()
-        content = (
+        # Scrub PII before storing in memory
+        content = scrub_pii(
             f"Incident ({now}): {error} on service {service} "
             f"(Severity: {severity}). "
             f"Root Cause: {root_cause}. "
