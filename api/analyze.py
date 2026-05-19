@@ -69,9 +69,12 @@ def call_groq(prompt, model_name, max_tokens=1024):
             usage = data.get("usage", {})
             content = data["choices"][0]["message"]["content"]
             return content, usage
-    except Exception:
-        pass
-    return None, {}
+        else:
+            # Return the actual error so we can debug
+            return f"Groq API error {r.status_code}: {r.text[:200]}", {}
+    except Exception as e:
+        return f"Groq exception: {str(e)}", {}
+
 
 
 def cascade_route(prompt, severity):
@@ -150,8 +153,8 @@ Be concise and specific."""
         # 3. Route through cascade
         content, model_used, cost, latency, route_type = cascade_route(prompt, severity)
 
-        if content is None:
-            content = "⚠️ LLM call failed. Check GROQ_API_KEY."
+        if not content:
+            content = f"⚠️ LLM call failed. GROQ_API_KEY set: {bool(GROQ_API_KEY)}, length: {len(GROQ_API_KEY)}"
 
         budget = BUDGETS.get(severity, 0.25)
         verifier_cost = MODELS["verifier"]["cost_per_1k"]

@@ -1,252 +1,121 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IncidentIQ — AI Incident Response</title>
-<meta name="description" content="AI-powered incident response that learns from every fix">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚨</text></svg>">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;450;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="description" content="AI-powered incident response agent with persistent memory">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 
-<!-- Command Palette Overlay -->
-<div class="cmd-overlay" id="cmdOverlay" style="display:none">
-  <div class="cmd-palette">
-    <div class="cmd-input-wrap">
-      <svg class="cmd-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input type="text" class="cmd-input" id="cmdInput" placeholder="Search incidents, services, commands…" autocomplete="off">
-      <kbd class="kbd">ESC</kbd>
-    </div>
-    <div class="cmd-results" id="cmdResults">
-      <div class="cmd-group-label">Quick Actions</div>
-      <button class="cmd-item" onclick="cmdAction('new')"><span class="cmd-item-icon">⚡</span>New Incident<kbd class="kbd">N</kbd></button>
-      <button class="cmd-item" onclick="cmdAction('history')"><span class="cmd-item-icon">📋</span>View History<kbd class="kbd">H</kbd></button>
-      <button class="cmd-item" onclick="cmdAction('analytics')"><span class="cmd-item-icon">📊</span>Analytics<kbd class="kbd">A</kbd></button>
-      <div class="cmd-group-label">Services</div>
-      <button class="cmd-item" onclick="cmdService('payment-service')"><span class="cmd-item-icon service-dot red"></span>payment-service</button>
-      <button class="cmd-item" onclick="cmdService('user-db')"><span class="cmd-item-icon service-dot green"></span>user-db</button>
-      <button class="cmd-item" onclick="cmdService('auth-api')"><span class="cmd-item-icon service-dot blue"></span>auth-api</button>
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <span class="logo">🚨</span>
+    <div>
+      <h1 class="title">IncidentIQ</h1>
+      <p class="subtitle">AI-Powered Incident Response — learns via <b>Hindsight</b> memory, routes via <b>cascadeflow</b></p>
     </div>
   </div>
-</div>
+  <span class="status-pill" id="memoryPill">● Loading…</span>
+</header>
 
-<!-- Toast Container -->
-<div class="toast-container" id="toasts"></div>
+<!-- Main 3-column layout -->
+<main class="grid">
 
-<!-- Sidebar -->
-<nav class="sidebar" id="sidebar">
-  <div class="sidebar-logo">
-    <div class="logo-mark">IQ</div>
-    <span class="logo-text">IncidentIQ</span>
-  </div>
-  <div class="sidebar-nav">
-    <button class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      Dashboard
-    </button>
-    <button class="nav-item" data-view="history" onclick="switchView('history')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      History
-    </button>
-    <button class="nav-item" data-view="analytics" onclick="switchView('analytics')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
-      Analytics
-    </button>
-  </div>
-  <div class="sidebar-footer">
-    <div class="sidebar-shortcut">
-      <kbd class="kbd">⌘</kbd><kbd class="kbd">K</kbd>
-      <span>Command</span>
+  <!-- LEFT: Alert Form -->
+  <section class="panel" id="formPanel">
+    <div class="section-header">⚠️ NEW ALERT</div>
+    <form id="alertForm">
+      <label for="service">Service</label>
+      <select id="service">
+        <option>payment-service</option><option>auth-api</option>
+        <option>nginx-gateway</option><option selected>user-db</option>
+        <option>cache-redis</option><option>inventory-api</option>
+        <option>search-service</option><option>notification-service</option>
+        <option>report-worker</option><option>image-processing</option>
+        <option>frontend-web</option>
+      </select>
+      <label for="error">Error Message</label>
+      <textarea id="error" rows="4" placeholder="e.g. DB connection pool exhausted&#10;e.g. OOM kill on pod nginx-7x"></textarea>
+      <label for="severity">Severity</label>
+      <select id="severity">
+        <option value="P1">P1 — Critical</option>
+        <option value="P2">P2 — High</option>
+        <option value="P3" selected>P3 — Medium</option>
+      </select>
+      <button type="submit" id="analyzeBtn">🔍 Analyze Incident</button>
+    </form>
+    <div class="session-stats" id="sessionStats" style="display:none">
+      <span id="queryCount">0</span> queries · $<span id="totalCost">0.00000</span> total
     </div>
-    <div class="sidebar-stats" id="sidebarStats">
-      <div class="stat-mini"><span class="stat-dot green"></span><span id="memStat">—</span> memories</div>
+  </section>
+
+  <!-- CENTER: Agent Response -->
+  <section class="panel panel-center" id="responsePanel">
+    <div class="section-header">🧠 AGENT INTELLIGENCE</div>
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">Ready to Respond</div>
+      <div class="empty-sub">Submit an alert. The agent searches Hindsight memory for similar past incidents.</div>
     </div>
-  </div>
-</nav>
-
-<!-- Main Content -->
-<main class="main" id="mainContent">
-
-  <!-- ═══ DASHBOARD VIEW ═══ -->
-  <div class="view active" id="view-dashboard">
-
-    <!-- Top Bar -->
-    <header class="topbar">
-      <div>
-        <h1 class="page-title">Incident Response</h1>
-        <p class="page-sub">AI-powered analysis with persistent memory</p>
+    <div id="responseContent" style="display:none">
+      <div id="badgeRow" class="badge-row"></div>
+      <div id="memoriesExpander" style="display:none">
+        <button class="expander-btn" onclick="toggleMemories()">
+          📂 <span id="memCount">0</span> recalled memories <span id="expandIcon">▸</span>
+        </button>
+        <div id="memoriesList" class="memories-list" style="display:none"></div>
       </div>
-      <div class="topbar-actions">
-        <div class="live-badge"><span class="live-dot"></span>Live</div>
-        <button class="btn-ghost" onclick="toggleCmd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Search <kbd class="kbd sm">⌘K</kbd></button>
-      </div>
-    </header>
-
-    <!-- Dashboard Grid -->
-    <div class="dash-grid">
-
-      <!-- LEFT: Alert Input -->
-      <section class="card card-input">
-        <div class="card-header">
-          <h2 class="card-title"><span class="card-icon">⚡</span>New Alert</h2>
-          <span class="card-badge">Input</span>
-        </div>
-        <form id="alertForm" class="alert-form">
-          <div class="field">
-            <label>Service</label>
-            <div class="select-wrap">
-              <select id="service">
-                <option>payment-service</option><option>auth-api</option>
-                <option>nginx-gateway</option><option selected>user-db</option>
-                <option>cache-redis</option><option>inventory-api</option>
-                <option>search-service</option><option>notification-service</option>
-                <option>report-worker</option><option>image-processing</option>
-                <option>frontend-web</option>
-              </select>
-            </div>
+      <div class="response-card" id="agentResponse"></div>
+      <!-- Resolve Section -->
+      <div class="resolve-section" id="resolveSection">
+        <h4>✅ Resolve & Teach</h4>
+        <p class="resolve-hint">Log the fix → agent learns it instantly</p>
+        <form id="resolveForm">
+          <div class="resolve-row">
+            <div><label>Root Cause</label><input id="rootCause" placeholder="e.g. Connection leak"></div>
+            <div><label>Fix Applied</label><input id="fixApplied" placeholder="e.g. Increased pool 10→20"></div>
           </div>
-          <div class="field">
-            <label>Error Message</label>
-            <textarea id="error" rows="3" placeholder="Describe the error…"></textarea>
-          </div>
-          <div class="field">
-            <label>Severity</label>
-            <div class="sev-selector">
-              <label class="sev-option"><input type="radio" name="sev" value="P1"><span class="sev-chip p1"><span class="sev-pulse"></span>P1 Critical</span></label>
-              <label class="sev-option"><input type="radio" name="sev" value="P2"><span class="sev-chip p2">P2 High</span></label>
-              <label class="sev-option"><input type="radio" name="sev" value="P3" checked><span class="sev-chip p3">P3 Medium</span></label>
-            </div>
-          </div>
-          <button type="submit" class="btn-primary" id="analyzeBtn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Analyze Incident
-          </button>
+          <label>Resolved By</label><input id="resolvedBy" placeholder="@your-handle">
+          <button type="submit" class="resolve-btn">💾 Log to Hindsight Memory</button>
         </form>
-      </section>
-
-      <!-- CENTER: AI Response -->
-      <section class="card card-response">
-        <div class="card-header">
-          <h2 class="card-title"><span class="card-icon">🧠</span>Agent Intelligence</h2>
-          <div id="responseBadges" class="badge-row"></div>
-        </div>
-
-        <!-- Empty State -->
-        <div id="emptyState" class="empty-state">
-          <div class="empty-orb"></div>
-          <h3>Waiting for Alert</h3>
-          <p>Submit an incident alert and the AI agent will search its memory for similar past incidents and suggest proven fixes.</p>
-          <div class="empty-features">
-            <span>🔍 Memory Recall</span>
-            <span>🤖 Smart Routing</span>
-            <span>📊 Cost Tracking</span>
-          </div>
-        </div>
-
-        <!-- Loading State -->
-        <div id="loadingState" style="display:none" class="loading-state">
-          <div class="loading-steps">
-            <div class="step active" id="step1"><span class="step-dot"></span>Searching Hindsight memory…</div>
-            <div class="step" id="step2"><span class="step-dot"></span>Routing to optimal model…</div>
-            <div class="step" id="step3"><span class="step-dot"></span>Generating response…</div>
-          </div>
-        </div>
-
-        <!-- Response -->
-        <div id="responseContent" style="display:none">
-          <!-- Memory Cards -->
-          <div id="memorySection" style="display:none">
-            <div class="memory-header" onclick="toggleEl('memoryCards')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="16" height="16"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-              <span id="memTitle">0 memories recalled</span>
-              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>
-            </div>
-            <div id="memoryCards" class="memory-cards" style="display:none"></div>
-          </div>
-
-          <!-- AI Response -->
-          <div class="ai-response" id="aiResponse"></div>
-
-          <!-- Resolve -->
-          <div class="resolve-bar" id="resolveBar">
-            <button class="btn-resolve" onclick="openResolve()">✅ Resolve & Teach Agent</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- RIGHT: Audit -->
-      <section class="card card-audit">
-        <div class="card-header">
-          <h2 class="card-title"><span class="card-icon">📊</span>Audit Trail</h2>
-        </div>
-        <div id="auditEmpty" class="audit-empty">
-          <p>Model routing, cost, and latency metrics appear here after analysis.</p>
-        </div>
-        <div id="auditContent" style="display:none">
-          <div id="routeBadge" class="route-badge"></div>
-          <div class="audit-grid" id="auditGrid"></div>
-          <div class="audit-rationale" id="auditRationale"></div>
-          <div class="cost-bar-wrap" id="costBarWrap" style="display:none">
-            <label>Budget Usage</label>
-            <div class="cost-bar"><div class="cost-fill" id="costFill"></div></div>
-            <div class="cost-labels"><span id="costUsed">$0</span><span id="costBudget">$0</span></div>
-          </div>
-          <button class="btn-ghost trace-btn" onclick="toggleEl('traceBlock')" id="traceToggle" style="display:none">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            Decision Trace
-          </button>
-          <pre id="traceBlock" class="trace-block" style="display:none"></pre>
-        </div>
-      </section>
-
+        <div id="resolveStatus"></div>
+      </div>
     </div>
-  </div>
-
-  <!-- ═══ HISTORY VIEW ═══ -->
-  <div class="view" id="view-history">
-    <header class="topbar"><div><h1 class="page-title">Incident History</h1><p class="page-sub">Timeline of all analyzed incidents this session</p></div></header>
-    <div class="timeline" id="timeline">
-      <div class="empty-state small"><h3>No incidents yet</h3><p>Analyze an incident to see it here.</p></div>
+    <div id="loadingState" style="display:none" class="loading-state">
+      <div class="spinner"></div>
+      <p>Searching memory & analyzing…</p>
     </div>
-  </div>
+  </section>
 
-  <!-- ═══ ANALYTICS VIEW ═══ -->
-  <div class="view" id="view-analytics">
-    <header class="topbar"><div><h1 class="page-title">Analytics</h1><p class="page-sub">Cost, performance, and memory utilization</p></div></header>
-    <div class="analytics-grid" id="analyticsGrid">
-      <div class="stat-card"><div class="stat-label">Total Queries</div><div class="stat-value" id="aQueries">0</div></div>
-      <div class="stat-card"><div class="stat-label">Total Cost</div><div class="stat-value green" id="aCost">$0.00000</div></div>
-      <div class="stat-card"><div class="stat-label">Memory Hit Rate</div><div class="stat-value blue" id="aHitRate">0%</div></div>
-      <div class="stat-card"><div class="stat-label">Avg Latency</div><div class="stat-value orange" id="aLatency">0ms</div></div>
-      <div class="stat-card"><div class="stat-label">Cost Saved</div><div class="stat-value green" id="aSaved">$0.00</div></div>
-      <div class="stat-card"><div class="stat-label">Drafter Usage</div><div class="stat-value" id="aDrafter">0%</div></div>
+  <!-- RIGHT: Audit Trail -->
+  <section class="panel" id="auditPanel">
+    <div class="section-header">📊 CASCADEFLOW AUDIT</div>
+    <div id="auditEmpty" class="empty-state small">
+      <div class="empty-icon">📊</div>
+      <div class="empty-sub">Audit trail appears after analysis.</div>
     </div>
-  </div>
+    <div id="auditContent" style="display:none">
+      <div id="routeTag" class="route-tag"></div>
+      <div class="metric-grid" id="metricGrid"></div>
+      <p class="rationale" id="rationale"></p>
+      <button class="expander-btn" onclick="toggleTrace()" id="traceBtn" style="display:none">
+        🔍 Full Decision Trace <span id="traceIcon">▸</span>
+      </button>
+      <pre id="traceData" class="trace-data" style="display:none"></pre>
+    </div>
+  </section>
 
 </main>
 
-<!-- Resolve Modal -->
-<div class="modal-overlay" id="resolveModal" style="display:none">
-  <div class="modal">
-    <div class="modal-header">
-      <h3>✅ Resolve Incident</h3>
-      <button class="modal-close" onclick="closeResolve()">✕</button>
-    </div>
-    <p class="modal-sub">Log the root cause and fix. The agent stores it in Hindsight memory and will recall it next time.</p>
-    <form id="resolveForm">
-      <div class="field"><label>Root Cause</label><input id="rootCause" placeholder="e.g. Connection leak in reporting service"></div>
-      <div class="field"><label>Fix Applied</label><input id="fixApplied" placeholder="e.g. Increased pool size from 10 to 20"></div>
-      <div class="field"><label>Resolved By</label><input id="resolvedBy" placeholder="@your-handle"></div>
-      <div class="modal-actions">
-        <button type="button" class="btn-ghost" onclick="closeResolve()">Cancel</button>
-        <button type="submit" class="btn-primary">💾 Save to Memory</button>
-      </div>
-    </form>
-    <div id="resolveStatus"></div>
-  </div>
-</div>
+<!-- History Bar -->
+<footer class="history-bar" id="historyBar" style="display:none">
+  <div class="section-header">📋 SESSION HISTORY</div>
+  <div id="historyList"></div>
+</footer>
 
 <script src="/app.js"></script>
 </body>
